@@ -1,0 +1,352 @@
+---
+title: "GSEA"
+author: "Giulia"
+date: '2022-07-27'
+output: html_document
+---
+---
+title: "Gene Set Enrichment Analysis with ClusterProfiler"
+author: "Mohammed Khalfan"
+date: "5/19/2019"
+output:
+  html_document:
+    df_print: paged
+df_print: paged
+---
+
+This R Notebook describes the implementation of gene set enrichment analysis (GSEA) using the clusterProfiler package. For more information please see the full documentation here: https://bioconductor.org/packages/release/bioc/vignettes/clusterProfiler/inst/doc/clusterProfiler.html
+
+
+# Install and load required packages
+```{r, message=F, warning=F}
+#BiocManager::install("clusterProfiler", version = "3.8")
+#BiocManager::install("pathview")
+#BiocManager::install("enrichplot")
+library(clusterProfiler)
+library(enrichplot)
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+library(viridis)
+library(org.Dr.eg.db)
+library(biomaRt)
+library(writexl)
+# devtools::install_github("nicolash2/gggsea")
+# library(gggsea)
+```
+# Directories
+```{r message=FALSE, echo = FALSE}
+dir_save = "/Users/boeziog/R_analyses_epi/data"
+dir_save_plots = "/Users/boeziog/R_analyses_epi/plots"
+file_input = "/Users/boeziog/R_analyses_epi/data/SHORTdst141_RNAseq_Giulia_01_21_rnaseq.xlsx"
+CM_all = "/Users/boeziog/R_analyses_epi/data/CM_all.xlsx"
+Epi_all = "/Users/boeziog/R_analyses_epi/data/Epi_all.xlsx"
+Spec_all = "/Users/boeziog/R_analyses_epi/data/Specific_all.xlsx"
+```
+
+#Prepare Input
+```{r}
+# tot_df = read_xlsx(file_input, sheet = "matrix",
+#                    .name_repair = function(x) gsub("\\s+", "_", x)) %>% 
+#   dplyr::select(Ensembl_gene_id, Ensembl_gene, starts_with("CM"), starts_with("Epi"))
+# tot_df
+
+
+#CM
+CM = read_xlsx(CM_all,
+                   .name_repair = function(x) gsub("\\s+", "_", x))%>%
+  # dplyr::rename(log2FoldChange = log2FoldChange_CM-Mut/CM-WT) %>%
+dplyr::select(ensembl_gene_id,log2FoldChange, pvalue)%>%
+      filter(pvalue < 0.05) %>%
+      as.tibble()%>%
+      # column_to_rownames(var = "ensembl_gene_id")%>%
+arrange(desc(log2FoldChange))
+CM
+
+CM_gene_list = CM %>% 
+      pull(log2FoldChange)
+
+names(CM_gene_list) = CM %>% 
+      pull(ensembl_gene_id) 
+
+head(CM_gene_list)
+
+#EPI
+
+Epi = read_xlsx(Epi_all,
+                   .name_repair = function(x) gsub("\\s+", "_", x))%>%
+  # dplyr::rename(log2FoldChange = log2FoldChange_CM-Mut/CM-WT) %>%
+dplyr::select(ensembl_gene_id,log2FoldChange, pvalue)%>%
+      filter(pvalue < 0.05) %>%
+      as.tibble()%>%
+      # column_to_rownames(var = "ensembl_gene_id")%>%
+arrange(desc(log2FoldChange))
+Epi
+
+Epi_gene_list = Epi %>% 
+      pull(log2FoldChange)
+
+names(Epi_gene_list) = Epi %>% 
+      pull(ensembl_gene_id) 
+
+head(Epi_gene_list)
+
+#Cell type specific
+
+
+Specific = read_xlsx(Spec_all,
+                   .name_repair = function(x) gsub("\\s+", "_", x))%>%
+  # dplyr::rename(log2FoldChange = log2FoldChange_CM-Mut/CM-WT) %>%
+dplyr::select(ensembl_gene_id,log2FoldChange, pvalue)%>%
+      filter(pvalue < 0.05) %>%
+      as.tibble()%>%
+      # column_to_rownames(var = "ensembl_gene_id")%>%
+arrange(desc(log2FoldChange))
+Specific
+
+Spec_gene_list = Specific %>% 
+      pull(log2FoldChange)
+
+names(Spec_gene_list) = Specific %>% 
+      pull(ensembl_gene_id) 
+
+head(Spec_gene_list)
+
+```
+
+
+# Annotations
+ I install and load the annotation "org.Dr.eg.db" below. See all annotations available here: http://bioconductor.org/packages/release/BiocViews.html#___OrgDb (there are 19 presently available). 
+
+```{r, message=F, warning=F}
+# SET THE DESIRED ORGANISM HERE
+organism = "org.Dr.eg.db"
+#BiocManager::install(organism, character.only = TRUE)
+library(organism, character.only = TRUE)
+```
+
+
+## Gene Set Enrichment
+Params:  
+  
+**keyType** This is the source of the annotation (gene ids). The options vary for each annotation.
+  
+Check which options are available with the `keytypes` command, for example `keytypes(org.Dm.eg.db)`. 
+  
+**ont** one of "BP", "MF", "CC" or "ALL"  
+**nPerm** permutation numbers, the higher the number of permutations you set, the more accurate your results is, but it will also cost longer time for running permutation.  
+**minGSSize** minimal size of each geneSet for analyzing.   
+**maxGSSize** maximal size of genes annotated for testing.   
+**pvalueCutoff** pvalue Cutoff.   
+**pAdjustMethod** one of "holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none" 
+
+
+```{r}
+
+nPerm = 100000 
+minGSSize = 10 
+maxGSSize = 300
+pvalueCutoff = 0.05
+
+gse <- gseGO(geneList=CM_gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = nPerm, 
+             minGSSize = minGSSize , 
+             maxGSSize = maxGSSize, 
+             pvalueCutoff = pvalueCutoff, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "none")
+
+gse_epi <- gseGO(geneList=Epi_gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = nPerm, 
+             minGSSize = minGSSize , 
+             maxGSSize = maxGSSize, 
+             pvalueCutoff = pvalueCutoff, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "none")
+
+gse_spec <- gseGO(geneList=Spec_gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = nPerm, 
+             minGSSize = minGSSize , 
+             maxGSSize = maxGSSize, 
+             pvalueCutoff = pvalueCutoff, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "none")
+
+
+
+```
+
+# Output
+##Table of results
+```{r}
+head(gse, n = 20)
+
+head(gse_epi, n = 20)
+
+head(gse_spec, n = 20)
+
+```
+
+##Dotplot
+```{r echo=TRUE, fig.width=14, fig.height=10}
+require(DOSE)
+
+#CM
+dotplot(gse, showCategory= 10, split=".sign", font.size = 10, label_format = 30, title = "Gene Set Enrichment - GO terms CM") + facet_grid(.~.sign) + scale_color_viridis(option=option, direction = -1) 
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "CM_",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_dotplot.pdf")), 
+        height = 6, width = 10)
+
+#Epi
+dotplot(gse_epi, showCategory= 10, split=".sign", font.size = 10, label_format = 30, title = "Gene Set Enrichment - GO terms EpiCs") + facet_grid(.~.sign) + scale_color_viridis(option=option, direction = -1) 
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "Epi_",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_dotplot.pdf")), 
+        height = 6, width = 10)
+
+#Specific
+
+dotplot(gse_spec, showCategory= 10, split=".sign", font.size = 10, label_format = 30, title = "Gene Set Enrichment - GO terms EpiC vs CMs") + facet_grid(.~.sign) + scale_color_viridis(option=option, direction = -1) 
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "Spec",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_dotplot.pdf")), 
+        height = 6, width = 10)
+
+```
+
+## Ridgeplot
+Helpful to interpret up/down-regulated pathways.
+```{r fig.width=18, fig.height=12}
+#CM
+ridgeplot(gse,showCategory = 20,label_format = 25 ) + labs(x = "enrichment distribution") + scale_fill_viridis(option=option, direction = -1)
+                   
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "CM_",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_ridgeplot.pdf")), 
+        height = 14, width = 25)
+
+#Epi
+ridgeplot(gse_epi) + labs(x = "enrichment distribution") + scale_fill_viridis(option=option, direction = -1)
+                   
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "Epi",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_ridgeplot.pdf")), 
+        height = 20, width = 20)
+
+#Specific
+ridgeplot(gse_spec) + labs(x = "enrichment distribution") + scale_fill_viridis(option=option, direction = -1)
+                   
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "Spec",
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_ridgeplot.pdf")), 
+        height = 12, width = 20)
+
+```
+
+## GSEA Plot  
+Traditional method for visualizing GSEA result.  
+
+Params:  
+**Gene Set** Integer. Corresponds to gene set in the gse object. The first gene set is 1, second gene set is 2, etc. 
+
+```{r fig.height=6}
+# Use the `Gene Set` param for the index in the title, and as the value for geneSetId
+
+#CM
+geneSetID = 1
+# gseaplot(gse, by = "runningScore", title = gse$Description[geneSetID], geneSetID = geneSetID,  color = "black", color.line = "green",color.vline = "red")
+
+gseaplot2(
+  gse,
+  geneSetID = geneSetID,
+  title = gse$Description[geneSetID],
+  color = "blue",
+  base_size = 13,
+  rel_heights = c(2, 0.5, 1),
+  subplots = 1:2,
+  pvalue_table = FALSE,
+  ES_geom = "line"
+) 
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "CM_",
+                                             gse$Description[geneSetID], 
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_gseaplot.pdf")), 
+        height = 6, width = 10)
+
+#Epi
+geneSetID = 1
+
+gseaplot2(gse_epi,
+  geneSetID = geneSetID,
+  title = gse$Description[geneSetID],
+  color = "blue",
+  base_size = 13,
+  rel_heights = c(2, 0.5, 1),
+  subplots = 1:2,
+  pvalue_table = FALSE,
+  ES_geom = "line"
+) 
+
+
+ggsave(file.path(dir_save_plots, paste0("GSEA_GO_", "Epi_",
+                                             gse$Description[geneSetID], 
+                                             "_log2FC_", min_Log2,
+                                             "_pvalue_", max_pvalue, 
+                                             "_minGSSize_", minGSSize,
+                                             "_maxGSSize_", maxGSSize,
+                                             "_nPerm_", nPerm,
+                                             "_pvalCutoff_", pvalueCutoff,
+                                             "_gseaplot.pdf")), 
+        height = 6, width = 10)
+```
